@@ -2,27 +2,31 @@
 
 
 from keras.models import Model
-from keras.layers import Input
+from keras.layers import Input, Multiply
 from keras.layers.embeddings import Embedding
 from keras.layers.recurrent import GRU
 from keras.layers.wrappers import Bidirectional, TimeDistributed
 from keras.layers.core import Dropout, Dense, Lambda, Masking
-from keras.engine.topology import merge, Layer
+from keras.engine.topology import Layer
 
-from keras import backend as K, initializations
+from keras import backend as K, initializers
 
+#https://machinelearningmastery.com/encoder-decoder-attention-sequence-to-sequence-prediction-keras/
+
+#https://keras.io/layers/writing-your-own-keras-layers/
 class AttentionLayer(Layer):
     '''
     Attention layer. 
     '''
-    def __init__(self, init='glorot_uniform', **kwargs):
+    def __init__(self, **kwargs):
         super(AttentionLayer, self).__init__(**kwargs)
         self.supports_masking = True
-        self.init = initializations.get(init)
+        #self.init = initializations.get(init)
+        self.init = initializers.glorot_normal(seed=None)
         
     def build(self, input_shape):
         input_dim = input_shape[-1]
-        self.Uw = self.init((input_dim, ))
+        self.Uw = self.init((input_dim,))
         self.trainable_weights = [self.Uw]
         super(AttentionLayer, self).build(input_shape)  
     
@@ -30,13 +34,18 @@ class AttentionLayer(Layer):
         return mask
     
     def call(self, x, mask=None):
+        print('x', x.shape)
+        print('Uw', self.Uw.shape)
+        #https://keras.io/layers/core/#masking
         multData =  K.exp(K.dot(x, self.Uw))
+        print('multData', multData.shape)
         if mask is not None:
+            print('mask', mask.shape)
             multData = mask*multData
         output = multData/(K.sum(multData, axis=1)+K.epsilon())[:,None]
         return K.reshape(output, (output.shape[0],output.shape[1],1))
 
-    def get_output_shape_for(self, input_shape):
+    def compute_output_shape(self, input_shape):
         newShape = list(input_shape)
         newShape[-1] = 1
         return tuple(newShape)
@@ -52,7 +61,7 @@ def createHierarchicalAttentionModel(maxSeq,
     '''
     Creates a model based on the Hierarchical Attention model according to : https://arxiv.org/abs/1606.02393
     inputs:
-        maxSeq : max size for sentences
+    maxSeq : max size for sentences
         embedding
             embWeights : numpy matrix with embedding values
             embeddingSize (if embWeights is None) : embedding size
@@ -76,11 +85,15 @@ def createHierarchicalAttentionModel(maxSeq,
         emb = Embedding(vocabSize, embeddingSize, mask_zero=True)(wordsInputs)
     else:
         emb = Embedding(embWeights.shape[0], embWeights.shape[1], mask_zero=True, weights=[embWeights], trainable=False)(wordsInputs)
+
+    print('Word Embeddings', emb.shape)
+    
     if dropWordEmb != 0.0:
         emb = Dropout(dropWordEmb)(emb)
     wordRnn = Bidirectional(recursiveClass(wordRnnSize, return_sequences=True), merge_mode='concat')(emb)
     if dropWordRnnOut  > 0.0:
         wordRnn = Dropout(dropWordRnnOut)(wordRnn)
+    print('wordRNN', wordRnn.shape)
     attention = AttentionLayer()(wordRnn)
     sentenceEmb = merge([wordRnn, attention], mode=lambda x:x[1]*x[0], output_shape=lambda x:x[0])
     sentenceEmb = Lambda(lambda x:K.sum(x, axis=1), output_shape=lambda x:(x[0],x[2]))(sentenceEmb)
@@ -96,7 +109,8 @@ def createHierarchicalAttentionModel(maxSeq,
     if dropSentenceRnnOut > 0.0:
         sentenceRnn = Dropout(dropSentenceRnnOut)(sentenceRnn)
     attentionSent = AttentionLayer()(sentenceRnn)
-    documentEmb = merge([sentenceRnn, attentionSent], mode=lambda x:x[1]*x[0], output_shape=lambda x:x[0])
+    #documentEmb = merge([sentenceRnn, attentionSent], mode=lambda x:x[1]*x[0], output_shape=lambda x:x[0])
+    documentEmb = Multiply()([sentenceRnn, attentionSent])
     documentEmb = Lambda(lambda x:K.sum(x, axis=1), output_shape=lambda x:(x[0],x[2]), name="att2")(documentEmb)
     documentOut = Dense(1, activation="sigmoid", name="documentOut")(documentEmb)
     
@@ -110,4 +124,8 @@ def createHierarchicalAttentionModel(maxSeq,
     modelAttentionEv.compile(loss='binary_crossentropy',
               optimizer='rmsprop',
               metrics=['accuracy'])
+
+    print(model.summary())
+    print(modelAttentionEv.summary())
+    
     return model, modelAttentionEv
