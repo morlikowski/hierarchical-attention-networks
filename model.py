@@ -1,6 +1,3 @@
-## model creation on Keras
-
-
 from keras.models import Model
 from keras.layers import Input, Multiply
 from keras.layers.embeddings import Embedding
@@ -11,9 +8,12 @@ from keras.engine.topology import Layer
 
 from keras import backend as K, initializers
 
-#https://machinelearningmastery.com/encoder-decoder-attention-sequence-to-sequence-prediction-keras/
+# model creation on Keras
 
-#https://keras.io/layers/writing-your-own-keras-layers/
+
+# TODO port to new custom layers architecture
+# https://keras.io/layers/writing-your-own-keras-layers/
+
 class AttentionLayer(Layer):
     '''
     Attention layer. 
@@ -21,7 +21,7 @@ class AttentionLayer(Layer):
     def __init__(self, **kwargs):
         super(AttentionLayer, self).__init__(**kwargs)
         self.supports_masking = True
-        #self.init = initializations.get(init)
+        # self.init = initializations.get(init)
         self.init = initializers.glorot_normal(seed=None)
         
     def build(self, input_shape):
@@ -36,14 +36,17 @@ class AttentionLayer(Layer):
     def call(self, x, mask=None):
         print('x', x.shape)
         print('Uw', self.Uw.shape)
-        #https://keras.io/layers/core/#masking
-        multData =  K.exp(K.dot(x, self.Uw))
+        # https://keras.io/layers/core/#masking
+        # multData =  K.exp(K.dot(x, self.Uw))
+        multData = K.squeeze(K.dot(x, K.expand_dims(self.Uw)), axis=-1)
         print('multData', multData.shape)
         if mask is not None:
             print('mask', mask.shape)
+            mask = K.cast(mask, K.floatx())
             multData = mask*multData
-        output = multData/(K.sum(multData, axis=1)+K.epsilon())[:,None]
-        return K.reshape(output, (output.shape[0],output.shape[1],1))
+        output = multData / (K.sum(multData, axis=1) + K.epsilon())
+        output = output[:, None]
+        return K.reshape(output, (K.shape(output)[0], K.shape(output)[1], 1))
 
     def compute_output_shape(self, input_shape):
         newShape = list(input_shape)
@@ -58,7 +61,7 @@ def createHierarchicalAttentionModel(maxSeq,
                                   recursiveClass = GRU, wordRnnSize=100, sentenceRnnSize=100,  #rnn 
                                   #wordDenseSize = 100, sentenceHiddenSize = 128, #dense
                                   dropWordEmb = 0.2, dropWordRnnOut = 0.2, dropSentenceRnnOut = 0.5):
-    '''
+    """
     Creates a model based on the Hierarchical Attention model according to : https://arxiv.org/abs/1606.02393
     inputs:
     maxSeq : max size for sentences
@@ -76,10 +79,10 @@ def createHierarchicalAttentionModel(maxSeq,
         Dropout
             
     returns : Two models. They are the same, but the second contains multiple outputs that can be use to analyse attention. 
-    '''
-    
-    ##
-    ## Sentence level logic 
+    """
+
+    # Sentence level logic
+
     wordsInputs = Input(shape=(maxSeq,), dtype='int32', name='words_input')
     if embWeights is None:
         emb = Embedding(vocabSize, embeddingSize, mask_zero=True)(wordsInputs)
@@ -95,7 +98,8 @@ def createHierarchicalAttentionModel(maxSeq,
         wordRnn = Dropout(dropWordRnnOut)(wordRnn)
     print('wordRNN', wordRnn.shape)
     attention = AttentionLayer()(wordRnn)
-    sentenceEmb = merge([wordRnn, attention], mode=lambda x:x[1]*x[0], output_shape=lambda x:x[0])
+    #sentenceEmb = merge([wordRnn, attention], mode=lambda x:x[1]*x[0], output_shape=lambda x:x[0])
+    sentenceEmb = Multiply()([wordRnn, attention])
     sentenceEmb = Lambda(lambda x:K.sum(x, axis=1), output_shape=lambda x:(x[0],x[2]))(sentenceEmb)
     modelSentence = Model(wordsInputs, sentenceEmb)
     modelSentAttention = Model(wordsInputs, attention)
@@ -125,7 +129,6 @@ def createHierarchicalAttentionModel(maxSeq,
               optimizer='rmsprop',
               metrics=['accuracy'])
 
-    print(model.summary())
     print(modelAttentionEv.summary())
     
     return model, modelAttentionEv
