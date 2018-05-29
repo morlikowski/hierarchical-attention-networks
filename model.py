@@ -8,50 +8,44 @@ from keras.engine.topology import Layer
 
 from keras import backend as K, initializers
 
-# model creation on Keras
-
-
-# TODO port to new custom layers architecture
-# https://keras.io/layers/writing-your-own-keras-layers/
 
 class AttentionLayer(Layer):
-    '''
+    """
     Attention layer. 
-    '''
+    """
+
     def __init__(self, **kwargs):
         super(AttentionLayer, self).__init__(**kwargs)
         self.supports_masking = True
-        # self.init = initializations.get(init)
-        self.init = initializers.glorot_normal(seed=None)
-        
+
     def build(self, input_shape):
         input_dim = input_shape[-1]
-        self.Uw = self.init((input_dim,))
-        self.trainable_weights = [self.Uw]
-        super(AttentionLayer, self).build(input_shape)  
-    
+        self.u_w = self.add_weight(shape=(input_dim,),
+                                   initializer='glorot_normal',
+                                   name='u_w',
+                                   trainable=True)
+        # self.trainable_weights = [self.Uw]
+        super(AttentionLayer, self).build(input_shape)
+
     def compute_mask(self, input, mask):
         return mask
-    
+
     def call(self, x, mask=None):
-        print('x', x.shape)
-        print('Uw', self.Uw.shape)
         # https://keras.io/layers/core/#masking
-        # multData =  K.exp(K.dot(x, self.Uw))
-        multData = K.squeeze(K.dot(x, K.expand_dims(self.Uw)), axis=-1)
-        print('multData', multData.shape)
+        # mult_data =  K.exp(K.dot(x, self.Uw))
+        mult_data = K.squeeze(K.dot(x, K.expand_dims(self.u_w)), axis=-1)
         if mask is not None:
-            print('mask', mask.shape)
             mask = K.cast(mask, K.floatx())
-            multData = mask*multData
-        output = multData / (K.sum(multData, axis=1) + K.epsilon())
+            mult_data = mask * mult_data
+        # FIXME Incompatible shapes: [32,80] vs. [32]
+        output = mult_data / (K.sum(mult_data, axis=1) + K.epsilon())
         output = output[:, None]
         return K.reshape(output, (K.shape(output)[0], K.shape(output)[1], 1))
 
     def compute_output_shape(self, input_shape):
-        newShape = list(input_shape)
-        newShape[-1] = 1
-        return tuple(newShape)
+        output_shape = list(input_shape)
+        output_shape[-1] = 1
+        return tuple(output_shape)
 
 # dropSentenceRnnOut = 0.5
 
@@ -88,15 +82,12 @@ def createHierarchicalAttentionModel(maxSeq,
         emb = Embedding(vocabSize, embeddingSize, mask_zero=True)(wordsInputs)
     else:
         emb = Embedding(embWeights.shape[0], embWeights.shape[1], mask_zero=True, weights=[embWeights], trainable=False)(wordsInputs)
-
-    print('Word Embeddings', emb.shape)
     
     if dropWordEmb != 0.0:
         emb = Dropout(dropWordEmb)(emb)
     wordRnn = Bidirectional(recursiveClass(wordRnnSize, return_sequences=True), merge_mode='concat')(emb)
     if dropWordRnnOut  > 0.0:
         wordRnn = Dropout(dropWordRnnOut)(wordRnn)
-    print('wordRNN', wordRnn.shape)
     attention = AttentionLayer()(wordRnn)
     #sentenceEmb = merge([wordRnn, attention], mode=lambda x:x[1]*x[0], output_shape=lambda x:x[0])
     sentenceEmb = Multiply()([wordRnn, attention])
@@ -128,7 +119,5 @@ def createHierarchicalAttentionModel(maxSeq,
     modelAttentionEv.compile(loss='binary_crossentropy',
               optimizer='rmsprop',
               metrics=['accuracy'])
-
-    print(modelAttentionEv.summary())
     
     return model, modelAttentionEv

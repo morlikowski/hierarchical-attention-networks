@@ -29,10 +29,13 @@ print('X_train shape:', X_train.shape)
 print('X_test shape:', X_test.shape)
 
 print('Build model...')
-model, modelAttEval = createHierarchicalAttentionModel(maxlen, embeddingSize = 200, vocabSize = max_features)
+model, modelAttEval = createHierarchicalAttentionModel(maxlen, embeddingSize=200, vocabSize=max_features)
 
+model.summary()
+
+# TODO add TensorBoard callback https://keras.io/callbacks/#tensorboard
 print('Train...')
-model.fit(X_train, y_train, batch_size=batch_size, epochs=10,
+model.fit(X_train, y_train, batch_size=batch_size, epochs=1,
           validation_data=(X_test, y_test))
 score, acc = model.evaluate(X_test, y_test,
                             batch_size=batch_size)
