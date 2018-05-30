@@ -20,7 +20,7 @@ class AttentionLayer(Layer):
 
     def build(self, input_shape):
         input_dim = input_shape[-1]
-        self.u_w = self.add_weight(shape=(input_dim,),
+        self.u_w = self.add_weight(shape=(input_dim, ),
                                    initializer='glorot_normal',
                                    name='u_w',
                                    trainable=True)
@@ -28,19 +28,32 @@ class AttentionLayer(Layer):
         super(AttentionLayer, self).build(input_shape)
 
     def compute_mask(self, input, mask):
-        return mask
+        return K.cast(mask, K.floatx())
 
     def call(self, x, mask=None):
         # https://keras.io/layers/core/#masking
-        # mult_data =  K.exp(K.dot(x, self.Uw))
+        # mult_data = K.dot(K.transpose(x), self.u_w)
+        print(x._keras_shape)
+        print(self.u_w._keras_shape)
         mult_data = K.squeeze(K.dot(x, K.expand_dims(self.u_w)), axis=-1)
+        print(mult_data.shape)
         if mask is not None:
             mask = K.cast(mask, K.floatx())
+            print(K.shape(mask))
             mult_data = mask * mult_data
+
+
+
+        return K.softmax(mult_data)
+
+        #mult_data_sum = (K.sum(mult_data, axis=1) + K.epsilon())
+        #mult_data_sum = K.print_tensor(mult_data_sum, message='mult_data_sum: ')
+        #mult_data = K.print_tensor(mult_data, message='\nmult_data: ')
+        #print(K.shape(mult_data_sum))
         # FIXME Incompatible shapes: [32,80] vs. [32]
-        output = mult_data / (K.sum(mult_data, axis=1) + K.epsilon())
-        output = output[:, None]
-        return K.reshape(output, (K.shape(output)[0], K.shape(output)[1], 1))
+        #output = mult_data / mult_data_sum
+        #output = output[:, None]
+        #return K.reshape(output, (K.shape(output)[0], K.shape(output)[1], 1))
 
     def compute_output_shape(self, input_shape):
         output_shape = list(input_shape)
@@ -88,9 +101,9 @@ def createHierarchicalAttentionModel(maxSeq,
     wordRnn = Bidirectional(recursiveClass(wordRnnSize, return_sequences=True), merge_mode='concat')(emb)
     if dropWordRnnOut  > 0.0:
         wordRnn = Dropout(dropWordRnnOut)(wordRnn)
-    attention = AttentionLayer()(wordRnn)
-    #sentenceEmb = merge([wordRnn, attention], mode=lambda x:x[1]*x[0], output_shape=lambda x:x[0])
-    sentenceEmb = Multiply()([wordRnn, attention])
+    mlp = Dense(100, activation='tanh')(wordRnn)
+    attention = AttentionLayer()(mlp)
+    sentenceEmb = Multiply()([wordRnn, attention]) # Dimensions must be equal, but are 200 and 80 for 'multiply_1/mul' (op: 'Mul') with input shapes: [?,?,200], [?,80]
     sentenceEmb = Lambda(lambda x:K.sum(x, axis=1), output_shape=lambda x:(x[0],x[2]))(sentenceEmb)
     modelSentence = Model(wordsInputs, sentenceEmb)
     modelSentAttention = Model(wordsInputs, attention)
@@ -104,7 +117,7 @@ def createHierarchicalAttentionModel(maxSeq,
     if dropSentenceRnnOut > 0.0:
         sentenceRnn = Dropout(dropSentenceRnnOut)(sentenceRnn)
     attentionSent = AttentionLayer()(sentenceRnn)
-    #documentEmb = merge([sentenceRnn, attentionSent], mode=lambda x:x[1]*x[0], output_shape=lambda x:x[0])
+    # documentEmb = merge([sentenceRnn, attentionSent], mode=lambda x:x[1]*x[0], output_shape=lambda x:x[0])
     documentEmb = Multiply()([sentenceRnn, attentionSent])
     documentEmb = Lambda(lambda x:K.sum(x, axis=1), output_shape=lambda x:(x[0],x[2]), name="att2")(documentEmb)
     documentOut = Dense(1, activation="sigmoid", name="documentOut")(documentEmb)

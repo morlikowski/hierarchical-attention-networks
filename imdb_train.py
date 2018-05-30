@@ -3,6 +3,7 @@ import numpy as np
 from model import createHierarchicalAttentionModel
 from keras.preprocessing import sequence
 from keras.datasets import imdb
+from keras.callbacks import TensorBoard
 
 np.random.seed(1337)  # for reproducibility
 
@@ -15,7 +16,7 @@ maxlen = 80  # cut texts after this number of words (among top max_features most
 batch_size = 32 
 
 print('Loading data...')
-(X_train, y_train), (X_test, y_test) = imdb.load_data(nb_words=max_features)
+(X_train, y_train), (X_test, y_test) = imdb.load_data(num_words=max_features)
 print(len(X_train), 'train sequences')
 print(len(X_test), 'test sequences')
 
@@ -34,9 +35,19 @@ model, modelAttEval = createHierarchicalAttentionModel(maxlen, embeddingSize=200
 model.summary()
 
 # TODO add TensorBoard callback https://keras.io/callbacks/#tensorboard
+tensorboard_callback = TensorBoard(log_dir='./logs/tensorboard',
+                                   histogram_freq=0,
+                                   batch_size=batch_size,
+                                   write_graph=True,
+                                   write_grads=False,
+                                   write_images=False,
+                                   embeddings_freq=0,
+                                   embeddings_layer_names=None,
+                                   embeddings_metadata=None)
+
 print('Train...')
 model.fit(X_train, y_train, batch_size=batch_size, epochs=1,
-          validation_data=(X_test, y_test))
+          validation_data=(X_test, y_test), callbacks=[tensorboard_callback])
 score, acc = model.evaluate(X_test, y_test,
                             batch_size=batch_size)
 print('Test score:', score)
