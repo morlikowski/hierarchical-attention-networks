@@ -30,7 +30,7 @@ print('X_train shape:', X_train.shape)
 print('X_test shape:', X_test.shape)
 
 print('Build model...')
-model, modelAttEval = createHierarchicalAttentionModel(maxlen, embeddingSize=200, vocabSize=max_features)
+model = createHierarchicalAttentionModel(maxlen, embeddingSize=200, vocabSize=max_features)
 
 model.summary()
 
